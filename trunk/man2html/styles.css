@@ -1,0 +1,39 @@
+body {
+    width: 1280px;
+    margin: 10px auto;
+    font-family: monospace;
+    font-size: 16px;
+}
+
+header {
+    text-align: center;
+}
+
+p {
+    display: table;
+    width: 100%;
+}
+
+section > p,
+section > section,
+section ul {
+    margin-left: 5%;
+}
+
+p > span {
+    display: inline-block;
+}
+
+p > span:first-child {
+    width: 30%;
+    text-align: left;
+}
+
+p > span:last-child {
+    width: 70%;
+    float: right;
+}
+
+p.intented {
+    margin-left: 10%;
+}
