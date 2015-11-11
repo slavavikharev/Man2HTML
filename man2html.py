@@ -2,282 +2,414 @@ import re
 import sys
 import subprocess
 
-HEADERS = ['.TH']
-HANGING_PARAGRAPHS = ['.TP', '.HP']
-FLUSH_LEFT_PARAGRAPHS = ['.LP', '.PP', '.P', '.IP']
-INTENTED_BLOCKS = ['.RS', '.RE']
-SECTION_HEADINGS = ['.SH']
-SECTION_SUBHEADINGS = ['.SS']
-LINE_BREAK_AND_SPACING = ['.br', '.sp']
-STYLES = ['.B', '.I', '.IR', '.RI', '.BI', '.IB', '.BR', '.RB']
-LISTS = ['.nf', '.fi']
-IGNORE = ['.pc', '.ie', '.el', '.\}', '.if']
-
-unknown = set()
-
-tagstack = []
-
-tabulation = lambda: '\t' * (len(tagstack) + 1)
+__all__ = ['Man2HTML']
 
 
-def writehtml(manfile, writer):
-    writer('<!DOCTYPE html>\n')
-    writer('<html>\n')
-    writer('<head>\n')
-    writer('\t<meta charset=\'UTF-8\'>\n')
-    writer('\t<title>======</title>\n')
-    writer('\t<link rel="stylesheet" href="styles.css">')
-    writer('</head>\n')
-    writer('<body>\n')
-    for line in convertman(manfile):
-        writer(line)
-    writer('</body>\n')
-    writer('</html>')
+class Man2HTML:
+    HEADERS = ['.TH']
+    HANGING_PARAGRAPHS = ['.TP', '.HP']
+    FLUSH_LEFT_PARAGRAPHS = ['.LP', '.PP', '.P', '.IP']
+    INTENTED_BLOCKS = ['.RS', '.RE']
+    SECTION_HEADINGS = ['.SH']
+    SECTION_SUBHEADINGS = ['.SS']
+    LINE_BREAK = ['.br', '.sp']
+    STYLES = ['.B', '.I', '.IR', '.RI', '.BI', '.IB', '.BR', '.RB']
+    LISTS = ['.nf', '.fi']
+    IGNORE = ['.pc', '.ie', '.el', '.\}', '.if']
 
+    unknown = set()
 
-def convertman(file):
-    for line in file:
-        macros, content = parseline(line)
-        yield convertline(macros, content)
-    yield closetags(0)
+    tagstack = []
 
+    tabulation = lambda: '\t' * (len(Man2HTML.tagstack) + 1)
 
-def convertline(macros, content):
-    result = ''
+    @staticmethod
+    def writehtml(manfile, writer):
+        """
+        Принимает
+        файл с man'ом и функцию
 
-    if not macros and not content:
-        result += tabulation() + '<br>\n'
+        Исполняет
+        использует функцию writer
+        для вывода html-текста
+        """
+        writer('<!DOCTYPE html>\n')
+        writer('<html>\n')
+        writer('<head>\n')
+        writer('\t<meta charset=\'UTF-8\'>\n')
+        writer('\t<title>======</title>\n')
+        writer('\t<link rel="stylesheet" href="styles.css">')
+        writer('</head>\n')
+        writer('<body>\n')
+        for line in Man2HTML.convertman(manfile):
+            writer(line)
+        writer('</body>\n')
+        writer('</html>')
 
-    elif not macros:
-        result += tabulation() + content + '\n'
+    @staticmethod
+    def convertman(file):
+        """
+        Принимает
+        файл
 
-    elif macros in IGNORE:
-        return ''
+        Исполняет
+        Пробегается по всем строкам файла и
+        возвращает сконвертированную
+        man строку в html формат
+        """
+        for line in file:
+            macros, content = Man2HTML.parseline(line)
+            yield Man2HTML.convertline(macros, content)
+        yield Man2HTML.closetags(0)
 
-    elif macros.startswith('.\\"') or \
-            macros.startswith('\'\\"'):
-        # result += tabulation() + '<!-- ' + content + ' -->\n'
-        return ''
+    @staticmethod
+    def parseline(line):
+        """
+        Принимает
+        man строку
 
-    elif macros in HEADERS:
-        result += tabulation() + '<header>' + content + '</header>\n'
+        Возвращает
+        tuple из макроса и содержимого
+        """
+        macros = None
+        content = Man2HTML.clearline(line.strip())
+        match = re.match(r'^[\.\']\S+', line)
 
-    elif macros in HANGING_PARAGRAPHS:
-        result += closetags(3)
-        result += tabulation() + '<p>\n'
-        tagstack.append('p')
-        result += tabulation() + '<span>\n'
-        tagstack.append('left')
+        if match:
+            macros = match.group(0)
+            content = Man2HTML.clearline(line[len(macros) + 1:].strip())
+
+        return macros, content
+
+    @staticmethod
+    def convertline(macros, content):
+        """
+        Принимает
+        макрос и содержимое
+
+        Возвращает
+        html строку
+        """
+        result = ''
+
+        if not macros and not content:
+            result += Man2HTML.tabulation() + '<br>\n'
+
+        elif not macros:
+            result += Man2HTML.tabulation() + content + '\n'
+
+        elif macros in Man2HTML.IGNORE:
+            return ''
+
+        elif macros.startswith('.\\"') or macros.startswith('\'\\"'):
+            # result += tabulation() + '<!-- ' + content + ' -->\n'
+            return ''
+
+        elif macros in Man2HTML.HEADERS:
+            result += Man2HTML.tabulation() + \
+                '<header>' + content + '</header>\n'
+
+        elif macros in Man2HTML.HANGING_PARAGRAPHS:
+            result += Man2HTML.closetags(3)
+            result += Man2HTML.tabulation() + '<p>\n'
+            Man2HTML.tagstack.append('p')
+            result += Man2HTML.tabulation() + '<span>\n'
+            Man2HTML.tagstack.append('left')
+            return result
+
+        elif macros in Man2HTML.FLUSH_LEFT_PARAGRAPHS:
+            result += Man2HTML.closetags(3)
+            result += Man2HTML.tabulation() + '<p>\n'
+            Man2HTML.tagstack.append('p')
+
+        elif macros in Man2HTML.INTENTED_BLOCKS:
+            result += Man2HTML.closetags(5)
+            if macros == '.RS':
+                result += Man2HTML.tabulation() + '<p class="intented">\n'
+                Man2HTML.tagstack.append('p')
+
+        elif macros in Man2HTML.SECTION_SUBHEADINGS:
+            result += Man2HTML.closetags(2)
+            result += Man2HTML.tabulation() + '<section>\n'
+            Man2HTML.tagstack.append('ssection')
+            result += Man2HTML.tabulation() + \
+                '<h4>' + content.strip('"') + '</h4>\n'
+            result += Man2HTML.tabulation() + '<p>\n'
+            Man2HTML.tagstack.append('p')
+
+        elif macros in Man2HTML.SECTION_HEADINGS:
+            result += Man2HTML.closetags(1)
+            result += Man2HTML.tabulation() + '<section>\n'
+            Man2HTML.tagstack.append('section')
+            result += Man2HTML.tabulation() + \
+                '<h3>' + content.strip('"') + '</h3>\n'
+            result += Man2HTML.tabulation() + '<p>\n'
+            Man2HTML.tagstack.append('p')
+
+        elif macros in Man2HTML.LISTS:
+
+            if macros == '.nf':
+                result += Man2HTML.closetags(4)
+                result += Man2HTML.tabulation() + '<ul>\n'
+                Man2HTML.tagstack.append('ul')
+
+            elif macros == '.fi':
+                result += Man2HTML.closetags(4)
+
+            return result
+
+        elif macros in Man2HTML.LINE_BREAK:
+
+            if macros == '.br':
+                if content:
+                    result += Man2HTML.tabulation() + content + '\n'
+                result += Man2HTML.tabulation() + '<br>\n'
+
+        elif macros in Man2HTML.STYLES:
+
+            content = [i for i in re.split(r'\"+(?![^\<]*\>)', content.strip('"'))
+                       if i.strip()]
+
+            if len(content) == 1:
+                content = re.split(r'\s+(?![^\<]*\>)', content[0].strip())
+
+            if macros == '.B':
+                for i in range(0, len(content)):
+                    content[i] = '<b>' + content[i] + '</b>'
+
+            elif macros == '.I':
+                for i in range(0, len(content)):
+                    content[i] = '<u>' + content[i] + '</u>'
+
+            elif macros == '.BI':
+                for i in range(0, len(content), 2):
+                    content[i] = '<b>' + content[i] + '</b>'
+                for i in range(1, len(content), 2):
+                    content[i] = '<u>' + content[i] + '</u>'
+
+            elif macros == '.IB':
+                for i in range(0, len(content), 2):
+                    content[i] = '<u>' + content[i] + '</u>'
+                for i in range(1, len(content), 2):
+                    content[i] = '<b>' + content[i] + '</b>'
+
+            elif macros == '.IR':
+                for i in range(0, len(content), 2):
+                    content[i] = '<u>' + content[i] + '</u>'
+
+            elif macros == '.RI':
+                for i in range(1, len(content), 2):
+                    content[i] = '<u>' + content[i] + '</u>'
+
+            elif macros == '.BR':
+                for i in range(0, len(content), 2):
+                    content[i] = '<b>' + content[i] + '</b>'
+
+            elif macros == '.RB':
+                for i in range(1, len(content), 2):
+                    content[i] = '<b>' + content[i] + '</b>'
+
+            result += Man2HTML.tabulation() + " ".join(content) + '\n'
+
+        else:
+
+            if macros not in Man2HTML.unknown:
+                print('Unknown macros: "' + macros + '"')
+                Man2HTML.unknown.add(macros)
+            # result += tabulation() + macros + ' ' + content + '\n'
+
+            return ''
+
+        if Man2HTML.tagstack:
+
+            if Man2HTML.tagstack[-1] == 'left':
+                result += Man2HTML.closetags(4)
+                result += Man2HTML.tabulation() + '<span>\n'
+                Man2HTML.tagstack.append('right')
+
+            elif Man2HTML.tagstack[-1] == 'ul':
+                result = Man2HTML.tabulation() + '<li>\n' + result
+                result += Man2HTML.tabulation() + '</li>\n'
+
         return result
 
-    elif macros in FLUSH_LEFT_PARAGRAPHS:
-        result += closetags(3)
-        result += tabulation() + '<p>\n'
-        tagstack.append('p')
+    @staticmethod
+    def closetags(lvl):
+        """
+        Принимает
+        уровень вложенности,
+        до которого нужно закрыть теги
 
-    elif macros in INTENTED_BLOCKS:
-        result += closetags(5)
-        if macros == '.RS':
-            result += tabulation() + '<p class="intented">\n'
-            tagstack.append('p')
+        Возвращает
+        строку, содержащую закрывающиеся теги
+        """
+        result = ''
 
-    elif macros in SECTION_SUBHEADINGS:
-        result += closetags(2)
-        result += tabulation() + '<section>\n'
-        tagstack.append('ssection')
-        result += tabulation() + '<h4>' + content.strip('"') + '</h4>\n'
-        result += tabulation() + '<p>\n'
-        tagstack.append('p')
+        if Man2HTML.tagstack:
 
-    elif macros in SECTION_HEADINGS:
-        result += closetags(1)
-        result += tabulation() + '<section>\n'
-        tagstack.append('section')
-        result += tabulation() + '<h3>' + content.strip('"') + '</h3>\n'
-        result += tabulation() + '<p>\n'
-        tagstack.append('p')
+            if lvl <= 6 and Man2HTML.tagstack[-1] == 'p':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</p>\n'
 
-    elif macros in LISTS:
+            if lvl <= 5 and Man2HTML.tagstack[-1] == 'li':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</li>\n'
 
-        if macros == '.nf':
-            result += closetags(4)
-            result += tabulation() + '<ul>\n'
-            tagstack.append('ul')
+            if lvl <= 4 and Man2HTML.tagstack[-1] == 'ul':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</ul>\n'
 
-        elif macros == '.fi':
-            result += closetags(4)
+            if lvl <= 4 and (Man2HTML.tagstack[-1] == 'left' or
+                             Man2HTML.tagstack[-1] == 'right'):
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</span>\n'
+
+            if lvl <= 3 and Man2HTML.tagstack[-1] == 'p':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</p>\n'
+
+            if lvl <= 2 and Man2HTML.tagstack[-1] == 'ssection':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</section>\n'
+
+            if lvl <= 1 and Man2HTML.tagstack[-1] == 'section':
+                Man2HTML.tagstack.pop()
+                result += Man2HTML.tabulation() + '</section>\n'
 
         return result
 
-    elif macros in LINE_BREAK_AND_SPACING:
+    @staticmethod
+    def clearline(line):
+        """
+        Принимает
+        man строку
 
-        if macros == '.br':
-            if content:
-                result += tabulation() + content + '\n'
-            result += tabulation() + '<br>\n'
+        Возвращает
+        строку, с замененными эскейп-символами
+        и с замененными ссылками и е-адресами
+        на ссылки и е-адреса в формате html
+        """
+        line = re.sub(r'\\e', r'\\', line)
+        line = re.sub(r'\\".*', '', line)
+        line = re.sub(r'\\w\'(\w*)\'u', r'\1', line)
+        line = re.sub(r'\\-', '-', line)
+        line = re.sub(r'\\[c\|&\/du%]', '', line)
+        line = re.sub(r'\\m\[.*?\]', '', line)
+        line = re.sub(r'\\s[+-]\d+', '', line)
+        line = re.sub(r'\\\s', '&nbsp;', line)
+        line = re.sub(r'&(\w*\s)', r'&amp;\1', line)
+        line = re.sub('<', '&lt;', line)
+        line = re.sub('>', '&gt;', line)
+        line = re.sub(r'\\\([lr]q', '"', line)
+        line = re.sub(r'\\\([ac]q', '\'', line)
+        line = re.sub(r'\\\*\(Aq', '', line)
+        line = re.sub(r'(\\f\w)', r'\\fR\1', line)
+        line = re.sub(r'\\fP', r'\\fR', line)
+        line = re.sub(r'\\fB(.+?)(\\fR|$)', r'<b>\1</b>', line)
+        line = re.sub(r'\\fI(.+?)(\\fR|$)', r'<u>\1</u>', line)
+        line = re.sub(r'\\fR', '', line)
+        line = re.sub(r'([a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z0-9-.]+)',
+                      r'<a href="mailto:\1">\1</a>', line)
+        line = re.sub(r'((https?|ftp|file):(\/){2,3}([\da-z\.-]+)\.?' +
+                      '([a-z\.]{2,6})?([~#\/\w\.-]*)*\/?)',
+                      r'<a href="\1">\1</a>', line)
 
-    elif macros in STYLES:
+        return line.strip()
 
-        content = [i for i in re.split(r'\"+(?![^\<]*\>)', content.strip('"'))
-                   if i.strip()]
+    @staticmethod
+    def check_options(args):
+        if len(sys.argv) == 1:
+            print('Type ./man2html.py --help for getting help')
+            quit()
 
-        if len(content) == 1:
-            content = re.split(r'\s+(?![^\<]*\>)', content[0].strip())
+        if '--help' in args:
+            print("""
+        Man2HTML
+        --------
 
-        if macros == '.B':
-            for i in range(0, len(content)):
-                content[i] = '<b>' + content[i] + '</b>'
+        man2html.py (command | --file <file dir>)
+                    [--out <file dir> | --print]
 
-        elif macros == '.I':
-            for i in range(0, len(content)):
-                content[i] = '<u>' + content[i] + '</u>'
+        Options:
+            --help              - эта страница
+            --file <file dir>   - man файл
+            --out <file dir>    - html файл для вывода
+            --print             - вывести html на экран
+            """)
+            quit()
 
-        elif macros == '.BI':
-            for i in range(0, len(content), 2):
-                content[i] = '<b>' + content[i] + '</b>'
-            for i in range(1, len(content), 2):
-                content[i] = '<u>' + content[i] + '</u>'
+        if '--out' not in args and '--print' not in args:
+            print('Input --out <file dir> and\or --print option(s)')
+            quit()
 
-        elif macros == '.IB':
-            for i in range(0, len(content), 2):
-                content[i] = '<u>' + content[i] + '</u>'
-            for i in range(1, len(content), 2):
-                content[i] = '<b>' + content[i] + '</b>'
+        options = {
+            'command': None,
+            'file': None,
+            'out': [],
+            'print': False
+        }
 
-        elif macros == '.IR':
-            for i in range(0, len(content), 2):
-                content[i] = '<u>' + content[i] + '</u>'
+        if '--file' in args:
+            index = args.index('--file') + 1
+            if len(args) < index:
+                print('Please input file dir after --file option')
+                quit()
+            options['file'] = args[index]
+        else:
+            options['command'] = args[1]
 
-        elif macros == '.RI':
-            for i in range(1, len(content), 2):
-                content[i] = '<u>' + content[i] + '</u>'
+        if '--out' in args:
+            index = args.index('--out') + 1
+            if len(args) < index:
+                print('Please input file dir after --out option')
+                quit()
+            options['out'] = args[index]
 
-        elif macros == '.BR':
-            for i in range(0, len(content), 2):
-                content[i] = '<b>' + content[i] + '</b>'
+        if '--print' in args:
+            options['print'] = True
 
-        elif macros == '.RB':
-            for i in range(1, len(content), 2):
-                content[i] = '<b>' + content[i] + '</b>'
-
-        result += tabulation() + " ".join(content) + '\n'
-
-    else:
-
-        if macros not in unknown:
-            print('Unknown macros: "' + macros + '"')
-            unknown.add(macros)
-        # result += tabulation() + macros + ' ' + content + '\n'
-
-        return ''
-
-    if tagstack:
-
-        if tagstack[-1] == 'left':
-            result += closetags(4)
-            result += tabulation() + '<span>\n'
-            tagstack.append('right')
-
-        elif tagstack[-1] == 'ul':
-            result = tabulation() + '<li>\n' + result
-            result += tabulation() + '</li>\n'
-
-    return result
-
-
-def closetags(lvl):
-
-    result = ''
-
-    if tagstack:
-
-        if lvl <= 6 and tagstack[-1] == 'p':
-            tagstack.pop()
-            result += tabulation() + '</p>\n'
-
-        if lvl <= 5 and tagstack[-1] == 'li':
-            tagstack.pop()
-            result += tabulation() + '</li>\n'
-
-        if lvl <= 4 and tagstack[-1] == 'ul':
-            tagstack.pop()
-            result += tabulation() + '</ul>\n'
-
-        if lvl <= 4 and (tagstack[-1] == 'left' or tagstack[-1] == 'right'):
-            tagstack.pop()
-            result += tabulation() + '</span>\n'
-
-        if lvl <= 3 and tagstack[-1] == 'p':
-            tagstack.pop()
-            result += tabulation() + '</p>\n'
-
-        if lvl <= 2 and tagstack[-1] == 'ssection':
-            tagstack.pop()
-            result += tabulation() + '</section>\n'
-
-        if lvl <= 1 and tagstack[-1] == 'section':
-            tagstack.pop()
-            result += tabulation() + '</section>\n'
-
-    return result
+        return options
 
 
-def parseline(line):
+def main():
 
-    macros = None
-    content = clearline(line.strip())
-    match = re.match(r'^[\.\']\S+', line)
+    options = Man2HTML.check_options(sys.argv)
 
-    if match:
-        macros = match.group(0)
-        content = clearline(line[len(macros) + 1:].strip())
+    if options['file'] is not None:
+        if options['out'] is not None:
+            try:
+                with open(options['file']) as manfile, \
+                        open(options['out'], 'w') as htmlfile:
+                    Man2HTML.writehtml(manfile, htmlfile.write)
+                    if options['print']:
+                        Man2HTML.writehtml(manfile, print)
+            except IOError as e:
+                print(e)
+        else:
+            try:
+                with open(options['file']) as manfile:
+                    Man2HTML.writehtml(manfile, print)
+            except IOError as e:
+                print(e)
+        return
 
-    return macros, content
-
-
-def clearline(line):
-
-    line = re.sub(r'\\e', r'\\', line)
-    line = re.sub(r'\\".*', '', line)
-    line = re.sub(r'\\w\'(\w*)\'u', r'\1', line)
-    line = re.sub(r'\\-', '-', line)
-    line = re.sub(r'\\[c\|&\/du%]', '', line)
-    line = re.sub(r'\\m\[.*?\]', '', line)
-    line = re.sub(r'\\s[+-]\d+', '', line)
-    line = re.sub(r'\\\s', '&nbsp;', line)
-    line = re.sub(r'&(\w*\s)', r'&amp;\1', line)
-    line = re.sub('<', '&lt;', line)
-    line = re.sub('>', '&gt;', line)
-    line = re.sub(r'\\\([lr]q', '"', line)
-    line = re.sub(r'\\\([ac]q', '\'', line)
-    line = re.sub(r'\\\*\(Aq', '', line)
-    line = re.sub(r'(\\f\w)', r'\\fR\1', line)
-    line = re.sub(r'\\fP', r'\\fR', line)
-    line = re.sub(r'\\fB(.+?)(\\fR|$)', r'<b>\1</b>', line)
-    line = re.sub(r'\\fI(.+?)(\\fR|$)', r'<u>\1</u>', line)
-    line = re.sub(r'\\fR', '', line)
-    line = re.sub(r'([a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z0-9-.]+)',
-                  r'<a href="mailto:\1">\1</a>', line)
-    line = re.sub(r'((https?|ftp|file):(\/){2,3}([\da-z\.-]+)\.?' +
-                  '([a-z\.]{2,6})?([~#\/\w\.-]*)*\/?)',
-                  r'<a href="\1">\1</a>', line)
-
-    return line.strip()
+    try:
+        place = subprocess \
+            .check_output(['man', '-w', options['command']]) \
+            .decode().strip()
+        man = subprocess \
+            .check_output(['zcat', place]) \
+            .decode().splitlines()
+        if options['out']:
+            with open(options['out'], 'w') as htmlfile:
+                Man2HTML.writehtml(man, htmlfile.write)
+                if options['print']:
+                    Man2HTML.writehtml(man, print)
+        else:
+            Man2HTML.writehtml(man, print)
+    except IOError as e:
+        print(e)
 
 
 if __name__ == '__main__':
-
-    # targ = 'ls'
-    targ = ''
-
-    if len(sys.argv) == 1:
-        while not targ:
-            targ = input("Input the command-name\nFor example 'python'\n")
-    else:
-        targ = sys.argv[1]
-
-    place = subprocess.check_output(['man', '-w', targ]).decode().strip()
-    man = subprocess.check_output(['zcat', place]).decode().splitlines()
-
-    with open('index.html', 'w') as htmlfile:
-        writehtml(man, htmlfile.write)
+    main()
