@@ -1,5 +1,6 @@
 import re
 import sys
+import argparse
 import subprocess
 
 __all__ = ['Man2HTML']
@@ -9,7 +10,7 @@ class Man2HTML:
     HEADERS = ['.TH']
     HANGING_PARAGRAPHS = ['.TP', '.HP']
     FLUSH_LEFT_PARAGRAPHS = ['.LP', '.PP', '.P', '.IP']
-    INTENTED_BLOCKS = ['.RS', '.RE']
+    INTENDED_BLOCKS = ['.RS', '.RE']
     SECTION_HEADINGS = ['.SH']
     SECTION_SUBHEADINGS = ['.SS']
     LINE_BREAK = ['.br', '.sp']
@@ -17,14 +18,16 @@ class Man2HTML:
     LISTS = ['.nf', '.fi']
     IGNORE = ['.pc', '.ie', '.el', '.\}', '.if']
 
-    unknown = set()
+    def __init__(self, man):
+        self.man = man
+        self.tags = []
+        self.regex_list = self.get_regex_list()
+        self.html = list(self.convert_man())
 
-    tagstack = []
+    def tabulation(self):
+        return '\t' * (len(self.tags) + 1)
 
-    tabulation = lambda: '\t' * (len(Man2HTML.tagstack) + 1)
-
-    @staticmethod
-    def writehtml(manfile, writer):
+    def write_html(self, writer):
         """
         Принимает
         файл с man'ом и функцию
@@ -41,13 +44,12 @@ class Man2HTML:
         writer('\t<link rel="stylesheet" href="styles.css">')
         writer('</head>\n')
         writer('<body>\n')
-        for line in Man2HTML.convertman(manfile):
+        for line in self.html:
             writer(line)
         writer('</body>\n')
-        writer('</html>')
+        writer('</html>\n')
 
-    @staticmethod
-    def convertman(file):
+    def convert_man(self):
         """
         Принимает
         файл
@@ -57,13 +59,12 @@ class Man2HTML:
         возвращает сконвертированную
         man строку в html формат
         """
-        for line in file:
-            macros, content = Man2HTML.parseline(line)
-            yield Man2HTML.convertline(macros, content)
-        yield Man2HTML.closetags(0)
+        for line in self.man:
+            macros, content = self.parse_line(line)
+            yield self.convert_line(macros, content)
+        yield self.close_tags(0)
 
-    @staticmethod
-    def parseline(line):
+    def parse_line(self, line):
         """
         Принимает
         man строку
@@ -72,17 +73,14 @@ class Man2HTML:
         tuple из макроса и содержимого
         """
         macros = None
-        content = Man2HTML.clearline(line.strip())
+        content = self.clear_line(line.strip())
         match = re.match(r'^[\.\']\S+', line)
-
         if match:
             macros = match.group(0)
-            content = Man2HTML.clearline(line[len(macros) + 1:].strip())
-
+            content = self.clear_line(line[len(macros) + 1:].strip())
         return macros, content
 
-    @staticmethod
-    def convertline(macros, content):
+    def convert_line(self, macros, content):
         """
         Принимает
         макрос и содержимое
@@ -93,85 +91,84 @@ class Man2HTML:
         result = ''
 
         if not macros and not content:
-            result += Man2HTML.tabulation() + '<br>\n'
+            result += self.tabulation() + '<br>\n'
 
         elif not macros:
-            result += Man2HTML.tabulation() + content + '\n'
+            result += self.tabulation() + content + '\n'
 
-        elif macros in Man2HTML.IGNORE:
+        elif macros in self.IGNORE:
             return ''
 
         elif macros.startswith('.\\"') or macros.startswith('\'\\"'):
-            # result += tabulation() + '<!-- ' + content + ' -->\n'
             return ''
 
-        elif macros in Man2HTML.HEADERS:
-            result += Man2HTML.tabulation() + \
-                '<header>' + content + '</header>\n'
+        elif macros in self.HEADERS:
+            result += self.tabulation() + \
+                      '<header>' + content + '</header>\n'
 
-        elif macros in Man2HTML.HANGING_PARAGRAPHS:
-            result += Man2HTML.closetags(3)
-            result += Man2HTML.tabulation() + '<p>\n'
-            Man2HTML.tagstack.append('p')
-            result += Man2HTML.tabulation() + '<span>\n'
-            Man2HTML.tagstack.append('left')
+        elif macros in self.HANGING_PARAGRAPHS:
+            result += self.close_tags(3)
+            result += self.tabulation() + '<p>\n'
+            self.tags.append('p')
+            result += self.tabulation() + '<span>\n'
+            self.tags.append('left')
             return result
 
-        elif macros in Man2HTML.FLUSH_LEFT_PARAGRAPHS:
-            result += Man2HTML.closetags(3)
-            result += Man2HTML.tabulation() + '<p>\n'
-            Man2HTML.tagstack.append('p')
+        elif macros in self.FLUSH_LEFT_PARAGRAPHS:
+            result += self.close_tags(3)
+            result += self.tabulation() + '<p>\n'
+            self.tags.append('p')
 
-        elif macros in Man2HTML.INTENTED_BLOCKS:
-            result += Man2HTML.closetags(5)
+        elif macros in self.INTENDED_BLOCKS:
+            result += self.close_tags(5)
             if macros == '.RS':
-                result += Man2HTML.tabulation() + '<p class="intented">\n'
-                Man2HTML.tagstack.append('p')
+                result += self.tabulation() + '<p class="intended">\n'
+                self.tags.append('p')
 
-        elif macros in Man2HTML.SECTION_SUBHEADINGS:
-            result += Man2HTML.closetags(2)
-            result += Man2HTML.tabulation() + '<section>\n'
-            Man2HTML.tagstack.append('ssection')
-            result += Man2HTML.tabulation() + \
-                '<h4>' + content.strip('"') + '</h4>\n'
-            result += Man2HTML.tabulation() + '<p>\n'
-            Man2HTML.tagstack.append('p')
+        elif macros in self.SECTION_SUBHEADINGS:
+            result += self.close_tags(2)
+            result += self.tabulation() + '<section>\n'
+            self.tags.append('ssection')
+            result += self.tabulation() + \
+                      '<h4>' + content.strip('"') + '</h4>\n'
+            result += self.tabulation() + '<p>\n'
+            self.tags.append('p')
 
-        elif macros in Man2HTML.SECTION_HEADINGS:
-            result += Man2HTML.closetags(1)
-            result += Man2HTML.tabulation() + '<section>\n'
-            Man2HTML.tagstack.append('section')
-            result += Man2HTML.tabulation() + \
-                '<h3>' + content.strip('"') + '</h3>\n'
-            result += Man2HTML.tabulation() + '<p>\n'
-            Man2HTML.tagstack.append('p')
+        elif macros in self.SECTION_HEADINGS:
+            result += self.close_tags(1)
+            result += self.tabulation() + '<section>\n'
+            self.tags.append('section')
+            result += self.tabulation() + \
+                      '<h3>' + content.strip('"') + '</h3>\n'
+            result += self.tabulation() + '<p>\n'
+            self.tags.append('p')
 
-        elif macros in Man2HTML.LISTS:
+        elif macros in self.LISTS:
 
             if macros == '.nf':
-                result += Man2HTML.closetags(4)
-                result += Man2HTML.tabulation() + '<ul>\n'
-                Man2HTML.tagstack.append('ul')
+                result += self.close_tags(4)
+                result += self.tabulation() + '<ul>\n'
+                self.tags.append('ul')
 
             elif macros == '.fi':
-                result += Man2HTML.closetags(4)
+                result += self.close_tags(4)
 
             return result
 
-        elif macros in Man2HTML.LINE_BREAK:
-
+        elif macros in self.LINE_BREAK:
             if macros == '.br':
                 if content:
-                    result += Man2HTML.tabulation() + content + '\n'
-                result += Man2HTML.tabulation() + '<br>\n'
+                    result += self.tabulation() + content + '\n'
+                result += self.tabulation() + '<br>\n'
 
-        elif macros in Man2HTML.STYLES:
+        elif macros in self.STYLES:
 
-            content = [i for i in re.split(r'\"+(?![^\<]*\>)', content.strip('"'))
+            content = [i for i in
+                       re.split(r'\"+(?![^<]*>)', content.strip('"'))
                        if i.strip()]
 
             if len(content) == 1:
-                content = re.split(r'\s+(?![^\<]*\>)', content[0].strip())
+                content = re.split(r'\s+(?![^<]*>)', content[0].strip())
 
             if macros == '.B':
                 for i in range(0, len(content)):
@@ -209,32 +206,22 @@ class Man2HTML:
                 for i in range(1, len(content), 2):
                     content[i] = '<b>' + content[i] + '</b>'
 
-            result += Man2HTML.tabulation() + " ".join(content) + '\n'
+            result += self.tabulation() + " ".join(content) + '\n'
 
         else:
-
-            if macros not in Man2HTML.unknown:
-                print('Unknown macros: "' + macros + '"')
-                Man2HTML.unknown.add(macros)
-            # result += tabulation() + macros + ' ' + content + '\n'
-
             return ''
 
-        if Man2HTML.tagstack:
-
-            if Man2HTML.tagstack[-1] == 'left':
-                result += Man2HTML.closetags(4)
-                result += Man2HTML.tabulation() + '<span>\n'
-                Man2HTML.tagstack.append('right')
-
-            elif Man2HTML.tagstack[-1] == 'ul':
-                result = Man2HTML.tabulation() + '<li>\n' + result
-                result += Man2HTML.tabulation() + '</li>\n'
-
+        if self.tags:
+            if self.tags[-1] == 'left':
+                result += self.close_tags(4)
+                result += self.tabulation() + '<span>\n'
+                self.tags.append('right')
+            elif self.tags[-1] == 'ul':
+                result = self.tabulation() + '<li>\n' + result
+                result += self.tabulation() + '</li>\n'
         return result
 
-    @staticmethod
-    def closetags(lvl):
+    def close_tags(self, lvl):
         """
         Принимает
         уровень вложенности,
@@ -245,41 +232,68 @@ class Man2HTML:
         """
         result = ''
 
-        if Man2HTML.tagstack:
+        if self.tags:
 
-            if lvl <= 6 and Man2HTML.tagstack[-1] == 'p':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</p>\n'
+            if lvl <= 6 and self.tags[-1] == 'p':
+                self.tags.pop()
+                result += self.tabulation() + '</p>\n'
 
-            if lvl <= 5 and Man2HTML.tagstack[-1] == 'li':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</li>\n'
+            if lvl <= 5 and self.tags[-1] == 'li':
+                self.tags.pop()
+                result += self.tabulation() + '</li>\n'
 
-            if lvl <= 4 and Man2HTML.tagstack[-1] == 'ul':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</ul>\n'
+            if lvl <= 4 and self.tags[-1] == 'ul':
+                self.tags.pop()
+                result += self.tabulation() + '</ul>\n'
 
-            if lvl <= 4 and (Man2HTML.tagstack[-1] == 'left' or
-                             Man2HTML.tagstack[-1] == 'right'):
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</span>\n'
+            if lvl <= 4 and (self.tags[-1] == 'left' or
+                             self.tags[-1] == 'right'):
+                self.tags.pop()
+                result += self.tabulation() + '</span>\n'
 
-            if lvl <= 3 and Man2HTML.tagstack[-1] == 'p':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</p>\n'
+            if lvl <= 3 and self.tags[-1] == 'p':
+                self.tags.pop()
+                result += self.tabulation() + '</p>\n'
 
-            if lvl <= 2 and Man2HTML.tagstack[-1] == 'ssection':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</section>\n'
+            if lvl <= 2 and self.tags[-1] == 'ssection':
+                self.tags.pop()
+                result += self.tabulation() + '</section>\n'
 
-            if lvl <= 1 and Man2HTML.tagstack[-1] == 'section':
-                Man2HTML.tagstack.pop()
-                result += Man2HTML.tabulation() + '</section>\n'
+            if lvl <= 1 and self.tags[-1] == 'section':
+                self.tags.pop()
+                result += self.tabulation() + '</section>\n'
 
         return result
 
-    @staticmethod
-    def clearline(line):
+    def get_regex_list(self):
+        return [
+            (re.compile(r'\\e'), r'\\'),
+            (re.compile(r'\\".*'), ''),
+            (re.compile(r'\\w\'(\w*)\'u'), r'\1'),
+            (re.compile(r'\\-'), '-'),
+            (re.compile(r'\\[c\|&/du%]'), ''),
+            (re.compile(r'\\m\[.*?\]'), ''),
+            (re.compile(r'\\s[+-]\d+'), ''),
+            (re.compile(r'\\\s'), '&nbsp;'),
+            (re.compile(r'&(\w*\s)'), r'&amp;\1'),
+            (re.compile(r'<'), '&lt;'),
+            (re.compile(r'>'), '&gt;'),
+            (re.compile(r'\\\([lr]q'), '"'),
+            (re.compile(r'\\\([ac]q'), '\''),
+            (re.compile(r'\\\*\(Aq'), ''),
+            (re.compile(r'(\\f\w)'), r'\\fR\1'),
+            (re.compile(r'\\fP'), r'\\fR'),
+            (re.compile(r'\\fB(.+?)(\\fR|$)'), r'<b>\1</b>'),
+            (re.compile(r'\\fI(.+?)(\\fR|$)'), r'<u>\1</u>'),
+            (re.compile(r'\\fR'), ''),
+            (re.compile(r'([a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z0-9-.]+)'),
+             r'<a href="mailto:\1">\1</a>'),
+            (re.compile(r'((https?|ftp|file):(/){2,3}([\da-z\.-]+)\.?'
+                        '([a-z\.]{2,6})?([~#/\w\.-]*)*/?)'),
+             r'<a href="\1">\1</a>')
+        ]
+
+    def clear_line(self, line):
         """
         Принимает
         man строку
@@ -289,126 +303,59 @@ class Man2HTML:
         и с замененными ссылками и е-адресами
         на ссылки и е-адреса в формате html
         """
-        line = re.sub(r'\\e', r'\\', line)
-        line = re.sub(r'\\".*', '', line)
-        line = re.sub(r'\\w\'(\w*)\'u', r'\1', line)
-        line = re.sub(r'\\-', '-', line)
-        line = re.sub(r'\\[c\|&\/du%]', '', line)
-        line = re.sub(r'\\m\[.*?\]', '', line)
-        line = re.sub(r'\\s[+-]\d+', '', line)
-        line = re.sub(r'\\\s', '&nbsp;', line)
-        line = re.sub(r'&(\w*\s)', r'&amp;\1', line)
-        line = re.sub('<', '&lt;', line)
-        line = re.sub('>', '&gt;', line)
-        line = re.sub(r'\\\([lr]q', '"', line)
-        line = re.sub(r'\\\([ac]q', '\'', line)
-        line = re.sub(r'\\\*\(Aq', '', line)
-        line = re.sub(r'(\\f\w)', r'\\fR\1', line)
-        line = re.sub(r'\\fP', r'\\fR', line)
-        line = re.sub(r'\\fB(.+?)(\\fR|$)', r'<b>\1</b>', line)
-        line = re.sub(r'\\fI(.+?)(\\fR|$)', r'<u>\1</u>', line)
-        line = re.sub(r'\\fR', '', line)
-        line = re.sub(r'([a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z0-9-.]+)',
-                      r'<a href="mailto:\1">\1</a>', line)
-        line = re.sub(r'((https?|ftp|file):(\/){2,3}([\da-z\.-]+)\.?' +
-                      '([a-z\.]{2,6})?([~#\/\w\.-]*)*\/?)',
-                      r'<a href="\1">\1</a>', line)
-
+        for regex, new in self.regex_list:
+            line = regex.sub(new, line)
         return line.strip()
-
-    @staticmethod
-    def check_options(args):
-        if len(sys.argv) == 1:
-            print('Type ./man2html.py --help for getting help')
-            quit()
-
-        if '--help' in args:
-            print("""
-        Man2HTML
-        --------
-
-        man2html.py (command | --file <file dir>)
-                    [--out <file dir> | --print]
-
-        Options:
-            --help              - эта страница
-            --file <file dir>   - man файл
-            --out <file dir>    - html файл для вывода
-            --print             - вывести html на экран
-            """)
-            quit()
-
-        if '--out' not in args and '--print' not in args:
-            print('Input --out <file dir> and\or --print option(s)')
-            quit()
-
-        options = {
-            'command': None,
-            'file': None,
-            'out': [],
-            'print': False
-        }
-
-        if '--file' in args:
-            index = args.index('--file') + 1
-            if len(args) < index:
-                print('Please input file dir after --file option')
-                quit()
-            options['file'] = args[index]
-        else:
-            options['command'] = args[1]
-
-        if '--out' in args:
-            index = args.index('--out') + 1
-            if len(args) < index:
-                print('Please input file dir after --out option')
-                quit()
-            options['out'] = args[index]
-
-        if '--print' in args:
-            options['print'] = True
-
-        return options
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--command', type=str,
+                        help='unix команда')
+    parser.add_argument('-f', '--file', type=str,
+                        help='man файл')
+    parser.add_argument('-o', '--out', type=str,
+                        help='html файл для вывода')
+    parser.add_argument('-p', '--print', action='store_true',
+                        help='вывести html на экран')
+    args = parser.parse_args()
 
-    options = Man2HTML.check_options(sys.argv)
+    in_file, out_file = None, None
 
-    if options['file'] is not None:
-        if options['out'] is not None:
-            try:
-                with open(options['file']) as manfile, \
-                        open(options['out'], 'w') as htmlfile:
-                    Man2HTML.writehtml(manfile, htmlfile.write)
-                    if options['print']:
-                        Man2HTML.writehtml(manfile, print)
-            except IOError as e:
-                print(e)
-        else:
-            try:
-                with open(options['file']) as manfile:
-                    Man2HTML.writehtml(manfile, print)
-            except IOError as e:
-                print(e)
+    if args.command:
+        try:
+            place = subprocess \
+                .check_output(['man', '-w', args.command]) \
+                .decode().strip()
+            in_file = subprocess \
+                .check_output(['zcat', place]) \
+                .decode().splitlines()
+        except NameError as e:
+            print(e)
+            return
+    elif args.file:
+        try:
+            in_file = open(args.file)
+        except IOError as e:
+            print(e)
+            return
+    else:
+        print(parser.print_help())
         return
 
-    try:
-        place = subprocess \
-            .check_output(['man', '-w', options['command']]) \
-            .decode().strip()
-        man = subprocess \
-            .check_output(['zcat', place]) \
-            .decode().splitlines()
-        if options['out']:
-            with open(options['out'], 'w') as htmlfile:
-                Man2HTML.writehtml(man, htmlfile.write)
-                if options['print']:
-                    Man2HTML.writehtml(man, print)
-        else:
-            Man2HTML.writehtml(man, print)
-    except IOError as e:
-        print(e)
+    if args.out:
+        try:
+            out_file = open(args.out, 'w')
+        except IOError as e:
+            print(e)
+    else:
+        out_file = sys.stdout
+
+    manparser = Man2HTML(in_file)
+    manparser.write_html(out_file.write)
+
+    if args.print:
+        manparser.write_html(sys.stdout.write)
 
 
 if __name__ == '__main__':
