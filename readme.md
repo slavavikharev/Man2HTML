@@ -34,6 +34,4 @@ Ignoring macroses:
 + .\\}
 + .if
 
-Author
-------
-Vikharev Slava CS-201
+*&copy; Vikharev Slava CS-201 2016*
